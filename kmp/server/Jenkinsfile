@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+
+    environment {
+        JAVA_HOME = '/usr/lib/jvm/java-17-openjdk-amd64'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'master',
+                    credentialsId: 'jenkins-github',
+                    url: 'git@github.com:vladimir-ivanov-info/croniot.git'
+            }
+        }
+
+        stage('Copy secret files into the project') {
+            //Copy secret files, ingored for github and stored in the server, into the project before building it.
+            steps {
+                sh 'cp /home/ubuntu/Downloads/croniot/secrets/hibernate.cfg.xml server/src/main/resources/META-INF/hibernate.cfg.xml'
+                sh 'cp /home/ubuntu/Downloads/croniot/secrets/hibernate-test.cfg.xml server/src/main/resources/META-INF/hibernate-test.cfg.xml'
+                sh 'cp /home/ubuntu/Downloads/croniot/secrets/persistence.xml server/src/main/resources/META-INF/persistence.xml'
+            }
+        }
+
+        stage('Build Server Module') {
+            steps {
+                sh './gradlew :server:build'
+            }
+        }
+
+        stage('Create JAR') {
+            steps {
+                sh './gradlew :server:jar'
+            }
+        }
+
+        stage('Archive JAR') {
+            steps {
+                archiveArtifacts artifacts: 'server/build/libs/*.jar', allowEmptyArchive: false
+            }
+        }
+
+        stage('Kill Existing Process') {
+            steps {
+                script {
+                    // Find the PID of the process containing "server-all" and kill it
+                    def pid = sh(script: "pgrep -f server-all", returnStdout: true).trim()
+                    if (pid) {
+                        echo "Terminating process with PID: ${pid}"
+                        sh "sudo kill -TERM ${pid}"
+                    } else {
+                        echo "No process found containing 'server-all'"
+                    }
+                }
+            }
+        }
+
+        /*stage('Copy JAR to location') {
+            steps {
+                // Replace /path/to/destination with the actual directory
+                sh 'cp server/build/libs/*.jar /home/ubuntu/croniot/'
+            }
+        }*/
+    }
+
+    post {
+        success {
+            echo 'Build completed successfully.'
+        }
+        failure {
+            echo 'Build failed.'
+        }
+    }
+}
